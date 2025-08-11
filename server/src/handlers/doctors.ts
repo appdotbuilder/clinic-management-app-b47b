@@ -1,21 +1,53 @@
+import { db } from '../db';
+import { doctorsTable, usersTable, medicalRecordsTable, patientsTable } from '../db/schema';
 import { type Doctor, type CreateDoctorInput, type UpdateDoctorInput, type GetDoctorPatientsInput } from '../schema';
+import { eq, and, gte, lt, SQL } from 'drizzle-orm';
 
 /**
  * Creates a new doctor profile linked to a user account
  * Only accessible by admin users
  */
 export async function createDoctor(input: CreateDoctorInput): Promise<Doctor> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to create a doctor profile for an existing user.
-    // Should validate that the user exists and has doctor role.
-    return Promise.resolve({
-        id: 1,
+  try {
+    // Validate that the user exists and has doctor role
+    const user = await db.select()
+      .from(usersTable)
+      .where(eq(usersTable.id, input.user_id))
+      .execute();
+
+    if (user.length === 0) {
+      throw new Error('User not found');
+    }
+
+    if (user[0].role !== 'doctor') {
+      throw new Error('User must have doctor role');
+    }
+
+    // Check if doctor profile already exists for this user
+    const existingDoctor = await db.select()
+      .from(doctorsTable)
+      .where(eq(doctorsTable.user_id, input.user_id))
+      .execute();
+
+    if (existingDoctor.length > 0) {
+      throw new Error('Doctor profile already exists for this user');
+    }
+
+    // Insert doctor record
+    const result = await db.insert(doctorsTable)
+      .values({
         user_id: input.user_id,
         specialization: input.specialization,
-        practice_schedule: input.practice_schedule,
-        created_at: new Date(),
-        updated_at: new Date()
-    });
+        practice_schedule: input.practice_schedule
+      })
+      .returning()
+      .execute();
+
+    return result[0];
+  } catch (error) {
+    console.error('Doctor creation failed:', error);
+    throw error;
+  }
 }
 
 /**
@@ -23,10 +55,17 @@ export async function createDoctor(input: CreateDoctorInput): Promise<Doctor> {
  * Accessible by admin and receptionist users
  */
 export async function getDoctors(): Promise<Doctor[]> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to fetch all doctors with their associated user data.
-    // Should join with users table to include doctor names.
-    return Promise.resolve([]);
+  try {
+    const results = await db.select()
+      .from(doctorsTable)
+      .innerJoin(usersTable, eq(doctorsTable.user_id, usersTable.id))
+      .execute();
+
+    return results.map(result => result.doctors);
+  } catch (error) {
+    console.error('Failed to get doctors:', error);
+    throw error;
+  }
 }
 
 /**
@@ -34,9 +73,18 @@ export async function getDoctors(): Promise<Doctor[]> {
  * Accessible by admin, doctor, and receptionist users
  */
 export async function getDoctorById(id: number): Promise<Doctor | null> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to fetch a single doctor with their user data.
-    return Promise.resolve(null);
+  try {
+    const results = await db.select()
+      .from(doctorsTable)
+      .innerJoin(usersTable, eq(doctorsTable.user_id, usersTable.id))
+      .where(eq(doctorsTable.id, id))
+      .execute();
+
+    return results.length > 0 ? results[0].doctors : null;
+  } catch (error) {
+    console.error('Failed to get doctor by ID:', error);
+    throw error;
+  }
 }
 
 /**
@@ -44,17 +92,40 @@ export async function getDoctorById(id: number): Promise<Doctor | null> {
  * Accessible by admin users and the doctor themselves
  */
 export async function updateDoctor(input: UpdateDoctorInput): Promise<Doctor> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to update doctor information.
-    // Should validate that only the doctor themselves or admin can update.
-    return Promise.resolve({
-        id: input.id,
-        user_id: 1,
-        specialization: input.specialization || 'General Medicine',
-        practice_schedule: input.practice_schedule || '{}',
-        created_at: new Date(),
-        updated_at: new Date()
-    });
+  try {
+    // Check if doctor exists
+    const existingDoctor = await db.select()
+      .from(doctorsTable)
+      .where(eq(doctorsTable.id, input.id))
+      .execute();
+
+    if (existingDoctor.length === 0) {
+      throw new Error('Doctor not found');
+    }
+
+    // Build update object with only provided fields
+    const updateData: any = {};
+    if (input.specialization !== undefined) {
+      updateData.specialization = input.specialization;
+    }
+    if (input.practice_schedule !== undefined) {
+      updateData.practice_schedule = input.practice_schedule;
+    }
+
+    // Add updated_at timestamp
+    updateData.updated_at = new Date();
+
+    const result = await db.update(doctorsTable)
+      .set(updateData)
+      .where(eq(doctorsTable.id, input.id))
+      .returning()
+      .execute();
+
+    return result[0];
+  } catch (error) {
+    console.error('Doctor update failed:', error);
+    throw error;
+  }
 }
 
 /**
@@ -62,10 +133,26 @@ export async function updateDoctor(input: UpdateDoctorInput): Promise<Doctor> {
  * Only accessible by admin users
  */
 export async function deleteDoctor(id: number): Promise<{ success: boolean }> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to delete a doctor profile.
-    // Should handle cascade deletion or prevent deletion if doctor has related records.
-    return Promise.resolve({ success: true });
+  try {
+    // Check if doctor has medical records
+    const medicalRecords = await db.select()
+      .from(medicalRecordsTable)
+      .where(eq(medicalRecordsTable.doctor_id, id))
+      .execute();
+
+    if (medicalRecords.length > 0) {
+      throw new Error('Cannot delete doctor with existing medical records');
+    }
+
+    const result = await db.delete(doctorsTable)
+      .where(eq(doctorsTable.id, id))
+      .execute();
+
+    return { success: true };
+  } catch (error) {
+    console.error('Doctor deletion failed:', error);
+    throw error;
+  }
 }
 
 /**
@@ -73,8 +160,34 @@ export async function deleteDoctor(id: number): Promise<{ success: boolean }> {
  * Accessible by the doctor themselves and admin users
  */
 export async function getDoctorPatients(input: GetDoctorPatientsInput): Promise<any[]> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to get patients with medical records for a specific doctor.
-    // Should filter by date (default to today) and include patient information.
-    return Promise.resolve([]);
+  try {
+    // Build query conditions
+    const conditions: SQL<unknown>[] = [
+      eq(medicalRecordsTable.doctor_id, input.doctor_id)
+    ];
+
+    // If date is provided, filter by that date; otherwise use today
+    const targetDate = input.date || new Date();
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    conditions.push(gte(medicalRecordsTable.visit_date, startOfDay));
+    conditions.push(lt(medicalRecordsTable.visit_date, endOfDay));
+
+    const results = await db.select()
+      .from(medicalRecordsTable)
+      .innerJoin(patientsTable, eq(medicalRecordsTable.patient_id, patientsTable.id))
+      .where(and(...conditions))
+      .execute();
+
+    return results.map(result => ({
+      patient: result.patients,
+      medical_record: result.medical_records
+    }));
+  } catch (error) {
+    console.error('Failed to get doctor patients:', error);
+    throw error;
+  }
 }

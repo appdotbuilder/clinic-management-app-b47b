@@ -1,23 +1,34 @@
+import { db } from '../db';
+import { usersTable } from '../db/schema';
 import { type User, type CreateUserInput, type UpdateUserInput } from '../schema';
+import { eq } from 'drizzle-orm';
 
 /**
  * Creates a new user account with hashed password
  * Only accessible by admin users
  */
 export async function createUser(input: CreateUserInput): Promise<User> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to create a new user account with proper password hashing.
-    // Should hash the password, validate unique username, and store user data.
-    return Promise.resolve({
-        id: 1,
+  try {
+    // Hash the password using Bun's built-in password hashing
+    const password_hash = await Bun.password.hash(input.password);
+
+    // Insert user record
+    const result = await db.insert(usersTable)
+      .values({
         username: input.username,
-        password_hash: 'hashed_password',
+        password_hash,
         full_name: input.full_name,
         role: input.role,
-        is_active: input.is_active,
-        created_at: new Date(),
-        updated_at: new Date()
-    });
+        is_active: input.is_active
+      })
+      .returning()
+      .execute();
+
+    return result[0];
+  } catch (error) {
+    console.error('User creation failed:', error);
+    throw error;
+  }
 }
 
 /**
@@ -25,10 +36,16 @@ export async function createUser(input: CreateUserInput): Promise<User> {
  * Only accessible by admin users
  */
 export async function getUsers(): Promise<User[]> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to fetch all users from the database.
-    // Should exclude password hashes from the response for security.
-    return Promise.resolve([]);
+  try {
+    const users = await db.select()
+      .from(usersTable)
+      .execute();
+
+    return users;
+  } catch (error) {
+    console.error('Failed to retrieve users:', error);
+    throw error;
+  }
 }
 
 /**
@@ -36,10 +53,17 @@ export async function getUsers(): Promise<User[]> {
  * Only accessible by admin users
  */
 export async function getUserById(id: number): Promise<User | null> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to fetch a single user by their ID.
-    // Should exclude password hash from the response for security.
-    return Promise.resolve(null);
+  try {
+    const users = await db.select()
+      .from(usersTable)
+      .where(eq(usersTable.id, id))
+      .execute();
+
+    return users[0] || null;
+  } catch (error) {
+    console.error('Failed to retrieve user by ID:', error);
+    throw error;
+  }
 }
 
 /**
@@ -47,19 +71,44 @@ export async function getUserById(id: number): Promise<User | null> {
  * Only accessible by admin users
  */
 export async function updateUser(input: UpdateUserInput): Promise<User> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to update user information.
-    // Should hash new password if provided, validate unique username if changed.
-    return Promise.resolve({
-        id: input.id,
-        username: 'updated_username',
-        password_hash: 'hashed_password',
-        full_name: 'Updated Name',
-        role: 'admin' as const,
-        is_active: true,
-        created_at: new Date(),
-        updated_at: new Date()
-    });
+  try {
+    // Build update object
+    const updateData: any = {};
+    
+    if (input.username !== undefined) {
+      updateData.username = input.username;
+    }
+    if (input.password !== undefined) {
+      updateData.password_hash = await Bun.password.hash(input.password);
+    }
+    if (input.full_name !== undefined) {
+      updateData.full_name = input.full_name;
+    }
+    if (input.role !== undefined) {
+      updateData.role = input.role;
+    }
+    if (input.is_active !== undefined) {
+      updateData.is_active = input.is_active;
+    }
+
+    // Always update the updated_at timestamp
+    updateData.updated_at = new Date();
+
+    const result = await db.update(usersTable)
+      .set(updateData)
+      .where(eq(usersTable.id, input.id))
+      .returning()
+      .execute();
+
+    if (result.length === 0) {
+      throw new Error('User not found');
+    }
+
+    return result[0];
+  } catch (error) {
+    console.error('User update failed:', error);
+    throw error;
+  }
 }
 
 /**
@@ -67,8 +116,19 @@ export async function updateUser(input: UpdateUserInput): Promise<User> {
  * Only accessible by admin users
  */
 export async function deleteUser(id: number): Promise<{ success: boolean }> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to delete a user account.
-    // Should handle cascade deletion or prevent deletion if user has related records.
-    return Promise.resolve({ success: true });
+  try {
+    const result = await db.delete(usersTable)
+      .where(eq(usersTable.id, id))
+      .returning()
+      .execute();
+
+    if (result.length === 0) {
+      throw new Error('User not found');
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('User deletion failed:', error);
+    throw error;
+  }
 }

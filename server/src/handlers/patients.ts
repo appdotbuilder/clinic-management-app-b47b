@@ -1,23 +1,30 @@
+import { db } from '../db';
+import { patientsTable } from '../db/schema';
 import { type Patient, type CreatePatientInput, type UpdatePatientInput, type SearchPatientInput } from '../schema';
+import { eq, or, ilike, SQL } from 'drizzle-orm';
 
 /**
  * Creates a new patient record
  * Accessible by admin and receptionist users
  */
 export async function createPatient(input: CreatePatientInput): Promise<Patient> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to create a new patient record.
-    // Should validate unique medical record number and store patient data.
-    return Promise.resolve({
-        id: 1,
+  try {
+    const result = await db.insert(patientsTable)
+      .values({
         medical_record_number: input.medical_record_number,
         full_name: input.full_name,
         phone_number: input.phone_number,
         address: input.address,
-        date_of_birth: input.date_of_birth,
-        created_at: new Date(),
-        updated_at: new Date()
-    });
+        date_of_birth: input.date_of_birth
+      })
+      .returning()
+      .execute();
+
+    return result[0];
+  } catch (error) {
+    console.error('Patient creation failed:', error);
+    throw error;
+  }
 }
 
 /**
@@ -25,10 +32,16 @@ export async function createPatient(input: CreatePatientInput): Promise<Patient>
  * Accessible by admin, doctor, and receptionist users
  */
 export async function getPatients(): Promise<Patient[]> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to fetch all patients from the database.
-    // Should support pagination for large datasets.
-    return Promise.resolve([]);
+  try {
+    const patients = await db.select()
+      .from(patientsTable)
+      .execute();
+
+    return patients;
+  } catch (error) {
+    console.error('Get patients failed:', error);
+    throw error;
+  }
 }
 
 /**
@@ -36,9 +49,17 @@ export async function getPatients(): Promise<Patient[]> {
  * Accessible by admin, doctor, and receptionist users
  */
 export async function getPatientById(id: number): Promise<Patient | null> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to fetch a single patient by their ID.
-    return Promise.resolve(null);
+  try {
+    const patients = await db.select()
+      .from(patientsTable)
+      .where(eq(patientsTable.id, id))
+      .execute();
+
+    return patients.length > 0 ? patients[0] : null;
+  } catch (error) {
+    console.error('Get patient by ID failed:', error);
+    throw error;
+  }
 }
 
 /**
@@ -46,19 +67,44 @@ export async function getPatientById(id: number): Promise<Patient | null> {
  * Accessible by admin and receptionist users
  */
 export async function updatePatient(input: UpdatePatientInput): Promise<Patient> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to update patient information.
-    // Should validate unique medical record number if changed.
-    return Promise.resolve({
-        id: input.id,
-        medical_record_number: 'MRN123',
-        full_name: 'Updated Patient',
-        phone_number: '123-456-7890',
-        address: 'Updated Address',
-        date_of_birth: new Date(),
-        created_at: new Date(),
-        updated_at: new Date()
-    });
+  try {
+    // Build update values object with only provided fields
+    const updateValues: any = {};
+    
+    if (input.medical_record_number !== undefined) {
+      updateValues.medical_record_number = input.medical_record_number;
+    }
+    if (input.full_name !== undefined) {
+      updateValues.full_name = input.full_name;
+    }
+    if (input.phone_number !== undefined) {
+      updateValues.phone_number = input.phone_number;
+    }
+    if (input.address !== undefined) {
+      updateValues.address = input.address;
+    }
+    if (input.date_of_birth !== undefined) {
+      updateValues.date_of_birth = input.date_of_birth;
+    }
+
+    // Always update the updated_at timestamp
+    updateValues.updated_at = new Date();
+
+    const result = await db.update(patientsTable)
+      .set(updateValues)
+      .where(eq(patientsTable.id, input.id))
+      .returning()
+      .execute();
+
+    if (result.length === 0) {
+      throw new Error(`Patient with ID ${input.id} not found`);
+    }
+
+    return result[0];
+  } catch (error) {
+    console.error('Patient update failed:', error);
+    throw error;
+  }
 }
 
 /**
@@ -66,10 +112,17 @@ export async function updatePatient(input: UpdatePatientInput): Promise<Patient>
  * Accessible by admin users only
  */
 export async function deletePatient(id: number): Promise<{ success: boolean }> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to delete a patient record.
-    // Should handle cascade deletion or prevent deletion if patient has related records.
-    return Promise.resolve({ success: true });
+  try {
+    const result = await db.delete(patientsTable)
+      .where(eq(patientsTable.id, id))
+      .returning()
+      .execute();
+
+    return { success: result.length > 0 };
+  } catch (error) {
+    console.error('Patient deletion failed:', error);
+    throw error;
+  }
 }
 
 /**
@@ -77,8 +130,26 @@ export async function deletePatient(id: number): Promise<{ success: boolean }> {
  * Accessible by admin, doctor, and receptionist users
  */
 export async function searchPatients(input: SearchPatientInput): Promise<Patient[]> {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to search patients by various criteria.
-    // Should support partial matching on name, phone number, and medical record number.
-    return Promise.resolve([]);
+  try {
+    // Build search conditions
+    const searchTerm = `%${input.query}%`;
+
+    const conditions: SQL<unknown>[] = [];
+    conditions.push(ilike(patientsTable.full_name, searchTerm));
+    conditions.push(ilike(patientsTable.phone_number, searchTerm));
+    conditions.push(ilike(patientsTable.medical_record_number, searchTerm));
+
+    // Execute query with all conditions at once
+    const patients = await db.select()
+      .from(patientsTable)
+      .where(or(...conditions))
+      .limit(input.limit)
+      .offset(input.offset)
+      .execute();
+
+    return patients;
+  } catch (error) {
+    console.error('Patient search failed:', error);
+    throw error;
+  }
 }
